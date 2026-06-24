@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
@@ -19,26 +18,13 @@ func main() {
 
 	ctx := context.Background()
 
-	// Handle the Workload Identity Federation configsuration setup dynamically
-	if wifConfig := os.Getenv("GCP_WIF_CONFIG"); wifConfig != "" {
-		// 1. Take Railway's live OIDC token string and write it to a local file
-		railwayToken := os.Getenv("RAILWAY_OIDC_TOKEN")
-		err := os.WriteFile("railway-token.txt", []byte(railwayToken), 0644)
+	// If the static service account JSON text is found, write it to disk
+	if keyContent := os.Getenv("GCP_KEY_CONTENT"); keyContent != "" {
+		err := os.WriteFile("gcp-key.json", []byte(keyContent), 0644)
 		if err != nil {
-			log.Fatalf("Failed to write Railway OIDC token file: %v", err)
+			log.Fatalf("Failed to write static service account key file: %v", err)
 		}
-
-		// 2. Fix Google's configuration JSON by replacing the env var placeholder with our new file path
-		fixedConfig := strings.ReplaceAll(wifConfig, "$RAILWAY_OIDC_TOKEN", "railway-token.txt")
-
-		// 3. Write out the corrected GCP configuration file
-		err = os.WriteFile("gcp-wif.json", []byte(fixedConfig), 0644)
-		if err != nil {
-			log.Fatalf("Failed to write runtime Workload Identity file: %v", err)
-		}
-
-		// 4. Point the Google SDK to our newly generated configuration file
-		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "gcp-wif.json")
+		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "gcp-key.json")
 	}
 
 	bucketName := os.Getenv("GCS_BUCKET_NAME")
@@ -51,7 +37,7 @@ func main() {
 		log.Fatal("GOOGLE_CLOUD_PROJECT environment variable is required for Firestore")
 	}
 
-	// Clients seamlessly read the corrected gcp-wif.json file automatically
+	// Clients automatically look at GOOGLE_APPLICATION_CREDENTIALS path
 	gcsClient, err := storage.NewClient(ctx)
 	if err != nil {
 		log.Fatalf("Failed to create GCS client: %v", err)
