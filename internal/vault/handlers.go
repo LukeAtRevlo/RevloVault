@@ -2,6 +2,7 @@ package vault
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -19,14 +20,16 @@ type VaultHandler struct {
 
 func (h *VaultHandler) HandleGrantUpload(w http.ResponseWriter, r *http.Request) {
 	var req GrantUploadRequest
-
+	println("Upload")
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	url, key, err := h.Service.GetUploadURL(r.Context(), req.FileName, req.OrgID, req.ClientID)
+	url, key, err := h.Service.GetUploadURL(r.Context(), req.FileName, req.OrgID, req.ClientID, req.ContentType)
+	log.Printf("GetUploadURL result: url=%s key=%s err=%v", url, key, err)
 	if err != nil {
+		log.Printf("GetUploadURL error: %v", err)
 		http.Error(w, "Service Error", http.StatusInternalServerError)
 		return
 	}
@@ -46,6 +49,7 @@ type GrantDownloadRequest struct {
 func (h *VaultHandler) HandleGrantDownload(w http.ResponseWriter, r *http.Request) {
 	var req GrantDownloadRequest
 
+        log.Printf("Download")
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -56,7 +60,7 @@ func (h *VaultHandler) HandleGrantDownload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	expectedPrefix := "uploads/" + req.OrgID + "/"
+	expectedPrefix := "vault/" + req.OrgID + "/"
 	if !strings.HasPrefix(req.Key, expectedPrefix) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return

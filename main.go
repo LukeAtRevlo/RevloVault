@@ -8,17 +8,17 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
+	"github.com/LukeAtRevlo/RevloVault/internal/audit"
+	"github.com/LukeAtRevlo/RevloVault/internal/check"
 	"github.com/LukeAtRevlo/RevloVault/internal/vault"
-	"google.golang.org/api/option" // Required for the credentials file
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	godotenv.Load()
+
 	ctx := context.Background()
 
-	// The path where Render mounts your Secret File
-	const credsPath = "/etc/secrets/gcp-key.json"
-
-	// 1. Validate Environment Variables
 	bucketName := os.Getenv("GCS_BUCKET_NAME")
 	if bucketName == "" {
 		log.Fatal("GCS_BUCKET_NAME environment variable is required")
@@ -29,34 +29,45 @@ func main() {
 		log.Fatal("GOOGLE_CLOUD_PROJECT environment variable is required for Firestore")
 	}
 
-	// 2. Initialize GCS Client
-	// We use option.WithCredentialsFile to point to the Render Secret File
-	gcsClient, err := storage.NewClient(ctx, option.WithCredentialsFile(credsPath))
+	// The official client libraries implicitly pick up Workload Identity 
+	// via the GOOGLE_APPLICATION_CREDENTIALS environment variable.
+	// No explicit clientOpts or token sources are needed!
+	gcsClient, err := storage.NewClient(ctx)
 	if err != nil {
 		log.Fatalf("Failed to create GCS client: %v", err)
 	}
 	defer gcsClient.Close()
 
-	// 3. Initialize Firestore Client
-	firestoreClient, err := firestore.NewClient(ctx, projectID, option.WithCredentialsFile(credsPath))
+	firestoreClient, err := firestore.NewClient(ctx, projectID)
 	if err != nil {
 		log.Fatalf("Failed to create Firestore client: %v", err)
 	}
 	defer firestoreClient.Close()
 
-	// 4. Initialize Services and Handlers
-	vaultService := vault.NewVaultService(gcsClient, firestoreClient, bucketName)
+	vaultService := vault.NewVaultService(gcsClient, firestoreClient, bucketName, os.Getenv("GCP_SERVICE_ACCOUNT"))
 	vaultHandler := &vault.VaultHandler{Service: vaultService}
 
-	// 5. Route Registration
+	auditService, err := audit.NewAuditService(os.Getenv("MYSQL_DSN"))
+	if err != nil {
+		log.Fatalf("Failed to connect to audit DB: %v", err)
+	}
+	auditHandler := &audit.AuditHandler{Service: auditService}
+
+	checkService := check.NewCheckService(os.Getenv("SUMSUB_TOKEN"), os.Getenv("SUMSUB_SECRET"))
+	checkHandler := &check.CheckHandler{Service: checkService, VaultService: vaultService}
+
 	http.HandleFunc("/grant-upload", vault.AuthMiddleware(vaultHandler.HandleGrantUpload))
 	http.HandleFunc("/grant-download", vault.AuthMiddleware(vaultHandler.HandleGrantDownload))
+	http.HandleFunc("/check/applicant", vault.AuthMiddleware(checkHandler.HandleCreateApplicant))
+	http.HandleFunc("/check/aml", vault.AuthMiddleware(checkHandler.HandleRecheckAML))
+	http.HandleFunc("/check/document", vault.AuthMiddleware(checkHandler.HandleSubmitDocument))
+	http.HandleFunc("/check/submit", vault.AuthMiddleware(checkHandler.HandleSubmit))
+	http.HandleFunc("/audit/event", vault.AuthMiddleware(auditHandler.HandleLogEvent))
 	
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// 6. Server Start
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
