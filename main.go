@@ -18,6 +18,17 @@ func main() {
 
 	ctx := context.Background()
 
+	// If Railway passed the configuration text as an environment variable, 
+	// dynamically write it to a local file so the Google SDK can find it.
+	if wifConfig := os.Getenv("GCP_WIF_CONFIG"); wifConfig != "" {
+		err := os.WriteFile("gcp-wif.json", []byte(wifConfig), 0644)
+		if err != nil {
+			log.Fatalf("Failed to write runtime Workload Identity file: %v", err)
+		}
+		// Explicitly tell the Google SDK to use this file for authentication
+		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "gcp-wif.json")
+	}
+
 	bucketName := os.Getenv("GCS_BUCKET_NAME")
 	if bucketName == "" {
 		log.Fatal("GCS_BUCKET_NAME environment variable is required")
@@ -29,8 +40,7 @@ func main() {
 	}
 
 	// The official client libraries implicitly pick up Workload Identity 
-	// via the GOOGLE_APPLICATION_CREDENTIALS environment variable.
-	// No explicit clientOpts or token sources are needed!
+	// via the GOOGLE_APPLICATION_CREDENTIALS environment variable set above.
 	gcsClient, err := storage.NewClient(ctx)
 	if err != nil {
 		log.Fatalf("Failed to create GCS client: %v", err)
@@ -45,7 +55,6 @@ func main() {
 
 	vaultService := vault.NewVaultService(gcsClient, firestoreClient, bucketName, os.Getenv("GCP_SERVICE_ACCOUNT"))
 	vaultHandler := &vault.VaultHandler{Service: vaultService}
-
 
 	checkService := check.NewCheckService(os.Getenv("SUMSUB_TOKEN"), os.Getenv("SUMSUB_SECRET"))
 	checkHandler := &check.CheckHandler{Service: checkService, VaultService: vaultService}
