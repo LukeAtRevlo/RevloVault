@@ -8,7 +8,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
-	"github.com/LukeAtRevlo/RevloVault/internal/audit"
 	"github.com/LukeAtRevlo/RevloVault/internal/check"
 	"github.com/LukeAtRevlo/RevloVault/internal/vault"
 	"github.com/joho/godotenv"
@@ -47,11 +46,6 @@ func main() {
 	vaultService := vault.NewVaultService(gcsClient, firestoreClient, bucketName, os.Getenv("GCP_SERVICE_ACCOUNT"))
 	vaultHandler := &vault.VaultHandler{Service: vaultService}
 
-	auditService, err := audit.NewAuditService(os.Getenv("MYSQL_DSN"))
-	if err != nil {
-		log.Fatalf("Failed to connect to audit DB: %v", err)
-	}
-	auditHandler := &audit.AuditHandler{Service: auditService}
 
 	checkService := check.NewCheckService(os.Getenv("SUMSUB_TOKEN"), os.Getenv("SUMSUB_SECRET"))
 	checkHandler := &check.CheckHandler{Service: checkService, VaultService: vaultService}
@@ -62,7 +56,6 @@ func main() {
 	http.HandleFunc("/check/aml", vault.AuthMiddleware(checkHandler.HandleRecheckAML))
 	http.HandleFunc("/check/document", vault.AuthMiddleware(checkHandler.HandleSubmitDocument))
 	http.HandleFunc("/check/submit", vault.AuthMiddleware(checkHandler.HandleSubmit))
-	http.HandleFunc("/audit/event", vault.AuthMiddleware(auditHandler.HandleLogEvent))
 	
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
