@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strings"
 )
 
 type GrantUploadRequest struct {
@@ -20,7 +19,7 @@ type VaultHandler struct {
 
 func (h *VaultHandler) HandleGrantUpload(w http.ResponseWriter, r *http.Request) {
 	var req GrantUploadRequest
-	println("Upload")
+	
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -39,6 +38,33 @@ func (h *VaultHandler) HandleGrantUpload(w http.ResponseWriter, r *http.Request)
 		"url": url,
 		"key": key,
 	})
+}
+
+type VerifyAccessRequest struct {
+	Key   string `json:"key"`
+	OrgID string `json:"orgId"`
+}
+
+func (h *VaultHandler) HandleVerifyAccess(w http.ResponseWriter, r *http.Request) {
+	var req VerifyAccessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Key == "" || req.OrgID == "" {
+		http.Error(w, "key and orgId are required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Service.VerifyAccess(r.Context(), req.Key); err != nil {
+		log.Printf("VerifyAccess error: %v", err)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"accessible": true})
 }
 
 type GrantDownloadRequest struct {
@@ -60,13 +86,7 @@ func (h *VaultHandler) HandleGrantDownload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	expectedPrefix := "vault/" + req.OrgID + "/"
-	if !strings.HasPrefix(req.Key, expectedPrefix) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	url, err := h.Service.GetDownloadURL(r.Context(), req.Key)
+	url, err := h.Service.GetDownloadURL(r.Context(), req.Key, req.OrgID)
 	if err != nil {
 		http.Error(w, "Service Error", http.StatusInternalServerError)
 		return

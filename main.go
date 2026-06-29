@@ -6,10 +6,14 @@ import (
 	"net/http"
 	"os"
 
-	"cloud.google.com/go/firestore"
-	"cloud.google.com/go/storage"
+	"github.com/LukeAtRevlo/RevloVault/internal/audit"
 	"github.com/LukeAtRevlo/RevloVault/internal/check"
 	"github.com/LukeAtRevlo/RevloVault/internal/vault"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 )
 
@@ -18,51 +22,60 @@ func main() {
 
 	ctx := context.Background()
 
-	// If the static service account JSON text is found, write it to disk
-	if keyContent := os.Getenv("GCP_KEY_CONTENT"); keyContent != "" {
-		err := os.WriteFile("gcp-key.json", []byte(keyContent), 0644)
-		if err != nil {
-			log.Fatalf("Failed to write static service account key file: %v", err)
-		}
-		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "gcp-key.json")
-	}
-
-	bucketName := os.Getenv("GCS_BUCKET_NAME")
+	bucketName := os.Getenv("S3_BUCKET_NAME")
 	if bucketName == "" {
-		log.Fatal("GCS_BUCKET_NAME environment variable is required")
+		log.Fatal("S3_BUCKET_NAME environment variable is required")
 	}
 
-	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
-	if projectID == "" {
-		log.Fatal("GOOGLE_CLOUD_PROJECT environment variable is required for Firestore")
-	}
-
-	// Clients automatically look at GOOGLE_APPLICATION_CREDENTIALS path
-	gcsClient, err := storage.NewClient(ctx)
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			os.Getenv("S3_ACCESS_KEY_ID"),
+			os.Getenv("S3_SECRET_KEY"),
+			"",
+		)),
+	)
 	if err != nil {
-		log.Fatalf("Failed to create GCS client: %v", err)
+		log.Fatalf("Failed to load S3 config: %v", err)
 	}
-	defer gcsClient.Close()
 
-	firestoreClient, err := firestore.NewClient(ctx, projectID)
+	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(os.Getenv("S3_ENDPOINT"))
+		o.UsePathStyle = true
+	})
+
+	vaultService, err := vault.NewVaultService(s3Client, bucketName, os.Getenv("VAULT_MASTER_KEY"))
 	if err != nil {
-		log.Fatalf("Failed to create Firestore client: %v", err)
+		log.Fatalf("Failed to init vault: %v", err)
 	}
-	defer firestoreClient.Close()
-
-	vaultService := vault.NewVaultService(gcsClient, firestoreClient, bucketName, os.Getenv("GCP_SERVICE_ACCOUNT"))
 	vaultHandler := &vault.VaultHandler{Service: vaultService}
+
+
 
 	checkService := check.NewCheckService(os.Getenv("SUMSUB_TOKEN"), os.Getenv("SUMSUB_SECRET"))
 	checkHandler := &check.CheckHandler{Service: checkService, VaultService: vaultService}
 
+
+	db, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatalf("Failed to connect to postgres: %v", err)
+	}
+	defer db.Close(ctx)
+
+	auditService := audit.NewAuditService(db)
+	auditHandler := audit.NewAuditHandler(auditService)
+
 	http.HandleFunc("/grant-upload", vault.AuthMiddleware(vaultHandler.HandleGrantUpload))
 	http.HandleFunc("/grant-download", vault.AuthMiddleware(vaultHandler.HandleGrantDownload))
+	http.HandleFunc("/vault/verify", vault.AuthMiddleware(vaultHandler.HandleVerifyAccess))
 	http.HandleFunc("/check/applicant", vault.AuthMiddleware(checkHandler.HandleCreateApplicant))
 	http.HandleFunc("/check/aml", vault.AuthMiddleware(checkHandler.HandleRecheckAML))
 	http.HandleFunc("/check/document", vault.AuthMiddleware(checkHandler.HandleSubmitDocument))
 	http.HandleFunc("/check/submit", vault.AuthMiddleware(checkHandler.HandleSubmit))
-	
+	http.HandleFunc("/vault/audit", vault.AuthMiddleware(auditHandler.HandleCreateAudit))
+	http.HandleFunc("/vault/audits", vault.AuthMiddleware(auditHandler.HandleGetAudits))
+
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
