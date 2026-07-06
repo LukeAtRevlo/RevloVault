@@ -53,7 +53,8 @@ func main() {
 
 
 	checkService := check.NewCheckService(os.Getenv("SUMSUB_TOKEN"), os.Getenv("SUMSUB_SECRET"))
-	checkHandler := &check.CheckHandler{Service: checkService, VaultService: vaultService}
+	amlService := check.NewAMLService(os.Getenv("OPENSANCTIONS_API_KEY"))
+	checkHandler := &check.CheckHandler{Service: checkService, AMLService: amlService, VaultService: vaultService}
 
 
 	db, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
@@ -68,10 +69,8 @@ func main() {
 	http.HandleFunc("/grant-upload", vault.AuthMiddleware(vaultHandler.HandleGrantUpload))
 	http.HandleFunc("/grant-download", vault.AuthMiddleware(vaultHandler.HandleGrantDownload))
 	http.HandleFunc("/vault/verify", vault.AuthMiddleware(vaultHandler.HandleVerifyAccess))
-	http.HandleFunc("/check/applicant", vault.AuthMiddleware(checkHandler.HandleCreateApplicant))
-	http.HandleFunc("/check/aml", vault.AuthMiddleware(checkHandler.HandleRecheckAML))
-	http.HandleFunc("/check/document", vault.AuthMiddleware(checkHandler.HandleSubmitDocument))
-	http.HandleFunc("/check/submit", vault.AuthMiddleware(checkHandler.HandleSubmit))
+	http.HandleFunc("/verification/aml", vault.AuthMiddleware(checkHandler.HandleAML))
+	http.HandleFunc("/verification/identity", vault.AuthMiddleware(checkHandler.HandleIdentity))
 	http.HandleFunc("/vault/audit", vault.AuthMiddleware(auditHandler.HandleCreateAudit))
 	http.HandleFunc("/vault/audits", vault.AuthMiddleware(auditHandler.HandleGetAudits))
 

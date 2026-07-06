@@ -104,40 +104,6 @@ func (s *CheckService) CreateApplicant(levelName string, req CreateApplicantRequ
 	return &result, nil
 }
 
-type AMLCheckResponse struct {
-	ApplicantID string `json:"applicantId"`
-	Inspections []struct {
-		InspectionID string `json:"inspectionId"`
-		Status       string `json:"status"`
-	} `json:"inspections"`
-}
-
-func (s *CheckService) RecheckAML(applicantID string) (*AMLCheckResponse, error) {
-	path := fmt.Sprintf("/resources/applicants/%s/recheck/aml", applicantID)
-	httpReq, err := http.NewRequest("POST", sumsubBaseURL+path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	s.sign(httpReq, nil)
-
-	resp, err := s.client.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("sumsub %d: %s", resp.StatusCode, respBody)
-	}
-
-	var result AMLCheckResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
 
 type DocumentMetadata struct {
 	IDDocType  string `json:"idDocType"`
