@@ -54,7 +54,12 @@ func main() {
 
 	checkService := check.NewCheckService(os.Getenv("SUMSUB_TOKEN"), os.Getenv("SUMSUB_SECRET"))
 	amlService := check.NewAMLService(os.Getenv("OPENSANCTIONS_API_KEY"))
-	checkHandler := &check.CheckHandler{Service: checkService, AMLService: amlService, VaultService: vaultService}
+	checkHandler := &check.CheckHandler{
+		Service:       checkService,
+		AMLService:    amlService,
+		VaultService:  vaultService,
+		WebhookSecret: os.Getenv("SUMSUB_WEBHOOK_SECRET"),
+	}
 
 
 	db, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
@@ -71,6 +76,7 @@ func main() {
 	http.HandleFunc("/vault/verify", vault.AuthMiddleware(vaultHandler.HandleVerifyAccess))
 	http.HandleFunc("/verification/aml", vault.AuthMiddleware(checkHandler.HandleAML))
 	http.HandleFunc("/verification/identity", vault.AuthMiddleware(checkHandler.HandleIdentity))
+	http.HandleFunc("/verification/webhook", checkHandler.HandleWebhook)
 	http.HandleFunc("/vault/audit", vault.AuthMiddleware(auditHandler.HandleCreateAudit))
 	http.HandleFunc("/vault/audits", vault.AuthMiddleware(auditHandler.HandleGetAudits))
 

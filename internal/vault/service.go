@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -160,6 +161,22 @@ func (s *VaultService) VerifyAccess(ctx context.Context, encryptedKey string) er
 		return fmt.Errorf("file not found in storage: %w", err)
 	}
 	return nil
+}
+
+// FileName recovers the original uploaded file name from an encrypted vault
+// key, stripping the "{timestamp}_{uuid}_" prefix added in GetUploadURL.
+func (s *VaultService) FileName(encryptedKey string) (string, error) {
+	rawKey, err := s.decrypt(encryptedKey)
+	if err != nil {
+		return "", err
+	}
+
+	base := filepath.Base(rawKey)
+	parts := strings.SplitN(base, "_", 3)
+	if len(parts) == 3 {
+		return parts[2], nil
+	}
+	return base, nil
 }
 
 func (s *VaultService) ReadFile(ctx context.Context, encryptedKey string) ([]byte, error) {

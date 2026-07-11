@@ -1,18 +1,22 @@
 package check
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
-	"path/filepath"
 
 	"github.com/LukeAtRevlo/RevloVault/internal/vault"
 )
 
 type CheckHandler struct {
-	Service      *CheckService
-	AMLService   *AMLService
-	VaultService *vault.VaultService
+	Service       *CheckService
+	AMLService    *AMLService
+	VaultService  *vault.VaultService
+	WebhookSecret string
 }
 
 type AMLHTTPRequest struct {
@@ -76,6 +80,7 @@ func (h *CheckHandler) HandleIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+
 	var req IdentityRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -108,10 +113,17 @@ func (h *CheckHandler) HandleIdentity(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		fileName, err := h.VaultService.FileName(doc.Key)
+		if err != nil {
+			log.Printf("FileName error for key %s: %v", doc.Key, err)
+			http.Error(w, "Failed to read document: "+doc.Key, http.StatusInternalServerError)
+			return
+		}
+
 		if err := h.Service.SubmitDocument(applicant.ID, DocumentMetadata{
 			IDDocType: doc.IDDocType,
 			Country:   doc.Country,
-		}, fileContent, filepath.Base(doc.Key)); err != nil {
+		}, fileContent, fileName); err != nil {
 			log.Printf("SubmitDocument error for key %s: %v", doc.Key, err)
 			http.Error(w, "Failed to upload document: "+doc.Key, http.StatusInternalServerError)
 			return
@@ -129,4 +141,50 @@ func (h *CheckHandler) HandleIdentity(w http.ResponseWriter, r *http.Request) {
 		"applicantId": applicant.ID,
 		"status":      "pending",
 	})
+}
+
+func (h *CheckHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Webhook read error: %v", err)
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	if !h.verifyWebhookSignature(r, body) {
+		log.Printf("Webhook signature verification failed")
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	log.Printf("Sumsub webhook received: %s", body)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *CheckHandler) verifyWebhookSignature(r *http.Request, body []byte) bool {
+	if h.WebhookSecret == "" {
+		log.Printf("Webhook secret not configured")
+		return false
+	}
+
+	if r.Header.Get("X-Payload-Digest-Alg") != "HMAC_SHA256" {
+		return false
+	}
+
+	sig := r.Header.Get("X-Payload-Digest")
+	if sig == "" {
+		return false
+	}
+
+	mac := hmac.New(sha256.New, []byte(h.WebhookSecret))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	return hmac.Equal([]byte(expected), []byte(sig))
 }
