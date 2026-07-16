@@ -45,16 +45,24 @@ type AMLResult struct {
 }
 
 func (s *AMLService) Check(query AMLQuery) (*AMLResult, error) {
+	properties := map[string]any{
+		"name": []string{query.Name},
+	}
+	if query.BirthDate != "" {
+		properties["birthDate"] = []string{query.BirthDate}
+	}
+	if query.Nationality != "" {
+		properties["nationality"] = []string{query.Nationality}
+	}
+	if query.Country != "" {
+		properties["country"] = []string{query.Country}
+	}
+
 	payload := map[string]any{
 		"queries": map[string]any{
 			"subject": map[string]any{
-				"schema": "Person",
-				"properties": map[string]any{
-					"name":        []string{query.Name},
-					"birthDate":   omitEmpty(query.BirthDate),
-					"nationality": omitEmpty(query.Nationality),
-					"country":     omitEmpty(query.Country),
-				},
+				"schema":     "Person",
+				"properties": properties,
 			},
 		},
 	}
@@ -123,11 +131,4 @@ func (s *AMLService) Check(query AMLQuery) (*AMLResult, error) {
 	}
 
 	return result, nil
-}
-
-func omitEmpty(s string) []string {
-	if s == "" {
-		return nil
-	}
-	return []string{s}
 }
