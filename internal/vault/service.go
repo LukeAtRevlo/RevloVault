@@ -65,7 +65,7 @@ func (s *VaultService) decrypt(ciphertext string) (string, error) {
 	if !strings.HasPrefix(ciphertext, "vault:v1:") {
 		return "", errors.New("invalid or unencrypted ciphertext format")
 	}
-	
+
 	pureHex := strings.TrimPrefix(ciphertext, "vault:v1:")
 	data, err := hex.DecodeString(pureHex)
 	if err != nil {

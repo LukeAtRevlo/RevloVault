@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
@@ -48,7 +49,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to init vault: %v", err)
 	}
-	vaultHandler := &vault.VaultHandler{Service: vaultService}
+
+	valueDB, err := pgxpool.New(ctx, os.Getenv("VAULT_DB_URL"))
+	if err != nil {
+		log.Fatalf("Failed to connect to vault values database: %v", err)
+	}
+	defer valueDB.Close()
+
+	vaultHandler := &vault.VaultHandler{
+		Service: vaultService,
+		Values:  vault.NewValueService(valueDB),
+	}
 
 
 
@@ -74,6 +85,8 @@ func main() {
 	http.HandleFunc("/grant-upload", vault.AuthMiddleware(vaultHandler.HandleGrantUpload))
 	http.HandleFunc("/grant-download", vault.AuthMiddleware(vaultHandler.HandleGrantDownload))
 	http.HandleFunc("/vault/verify", vault.AuthMiddleware(vaultHandler.HandleVerifyAccess))
+	http.HandleFunc("/store-value", vault.AuthMiddleware(vaultHandler.HandleStoreValue))
+	http.HandleFunc("/get-value", vault.AuthMiddleware(vaultHandler.HandleGetValue))
 	http.HandleFunc("/verification/aml", vault.AuthMiddleware(checkHandler.HandleAML))
 	http.HandleFunc("/verification/identity", vault.AuthMiddleware(checkHandler.HandleIdentity))
 	http.HandleFunc("/verification/webhook", checkHandler.HandleWebhook)

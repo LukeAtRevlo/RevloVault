@@ -147,6 +147,7 @@ func (s *CheckService) SubmitDocument(applicantID string, meta DocumentMetadata,
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Println(string(respBody), "BODY")
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("sumsub %d: %s", resp.StatusCode, respBody)
 	}
@@ -169,6 +170,8 @@ func (s *CheckService) SubmitForReview(applicantID string) error {
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Println(string(respBody), "SUBMIT")
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("sumsub %d: %s", resp.StatusCode, respBody)
 	}

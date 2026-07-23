@@ -2,6 +2,7 @@ package vault
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 )
@@ -15,6 +16,7 @@ type GrantUploadRequest struct {
 
 type VaultHandler struct {
 	Service *VaultService
+	Values  *ValueService
 }
 
 func (h *VaultHandler) HandleGrantUpload(w http.ResponseWriter, r *http.Request) {
@@ -95,5 +97,74 @@ func (h *VaultHandler) HandleGrantDownload(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"url": url,
+	})
+}
+
+type StoreValueRequest struct {
+	OrgID             string `json:"orgId"`
+	RequestInstanceID string `json:"requestInstanceId"`
+	Value             string `json:"value"`
+	ExistingKey       string `json:"existingKey"`
+}
+
+func (h *VaultHandler) HandleStoreValue(w http.ResponseWriter, r *http.Request) {
+	var req StoreValueRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.OrgID == "" || req.RequestInstanceID == "" {
+		http.Error(w, "orgId and requestInstanceId are required", http.StatusBadRequest)
+		return
+	}
+
+	key, err := h.Values.StoreValue(r.Context(), req.OrgID, req.RequestInstanceID, req.Value, req.ExistingKey)
+	if err != nil {
+		log.Printf("StoreValue error: %v", err)
+		if errors.Is(err, ErrValueNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Service Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"key": key,
+	})
+}
+
+type GetValueRequest struct {
+	Key               string `json:"key"`
+	OrgID             string `json:"orgId"`
+	RequestInstanceID string `json:"requestInstanceId"`
+}
+
+func (h *VaultHandler) HandleGetValue(w http.ResponseWriter, r *http.Request) {
+	var req GetValueRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Key == "" || req.OrgID == "" || req.RequestInstanceID == "" {
+		http.Error(w, "key, orgId and requestInstanceId are required", http.StatusBadRequest)
+		return
+	}
+
+	value, err := h.Values.GetValue(r.Context(), req.Key, req.OrgID, req.RequestInstanceID)
+	if err != nil {
+		log.Printf("GetValue error: %v", err)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"value": value,
 	})
 }
